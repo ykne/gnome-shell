@@ -896,6 +896,9 @@ export class WindowManager {
             return true;
         });
         global.display.connect('x11-display-closing', () => {
+            if (!Meta.is_wayland_compositor())
+                return;
+
             this._stopX11Services(null);
 
             IBusManager.getIBusManager().restartDaemon();
