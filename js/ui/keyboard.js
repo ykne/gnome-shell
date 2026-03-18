@@ -1064,6 +1064,16 @@ export const Keyboard = GObject.registerClass({
         this._windowMovedId = this._focusTracker.connect('window-moved',
             this._onFocusWindowMoving.bind(this));
 
+        // Valid only for X11
+        if (!Meta.is_wayland_compositor()) {
+            this._focusTracker.connectObject('focus-changed', (_tracker, focused) => {
+                if (focused)
+                    this.open(Main.layoutManager.focusIndex);
+                else
+                    this.close();
+            }, this);
+        }
+
         this._showIdleId = 0;
 
         this._keyboardVisible = false;
@@ -1160,6 +1170,10 @@ export const Keyboard = GObject.registerClass({
     }
 
     _shouldShowEmoji() {
+        // Emoji entry is only offered under Wayland
+        if (!Meta.is_wayland_compositor())
+            return false;
+
         if ((this._contentHints & Clutter.InputContentHintFlags.NO_EMOJI) !== 0)
             return false;
 
@@ -1676,6 +1690,12 @@ export const Keyboard = GObject.registerClass({
         this._keyboardHeightNotifyId = keyboardBox.connect('notify::height', () => {
             this.translation_y = -this.height;
         });
+
+        // Toggle visibility so the keyboardBox can update its chrome region.
+        if (!Meta.is_wayland_compositor()) {
+            keyboardBox.hide();
+            keyboardBox.show();
+        }
     }
 
     _animateHide() {

@@ -95,8 +95,9 @@ rsvg_dep = dependency('librsvg-2.0', version: rsvg_req)
 glycin_dep = dependency('glycin-2', version: glycin_req)
 
 have_fonts = mutter_dep.get_variable('have_fonts') == 'true'
-have_xwayland = mutter_dep.get_variable('have_xwayland') == 'true'
-if have_xwayland
+have_x11 = mutter_dep.get_variable('have_x11') == 'true'
+have_x11_client = mutter_dep.get_variable('have_x11_client') == 'true'
+if have_x11_client or have_x11
   x11_dep = dependency('x11')
   xext_dep = dependency('xext')
   xfixes_dep = dependency('xfixes')
@@ -178,7 +179,8 @@ cdata.set_quoted('PACKAGE_VERSION', meson.project_version())
 cdata.set('HAVE_NETWORKMANAGER', have_networkmanager)
 cdata.set('HAVE_PIPEWIRE', have_pipewire)
 cdata.set('HAVE_SYSTEMD', have_systemd)
-cdata.set('HAVE_XWAYLAND', have_xwayland)
+cdata.set('HAVE_X11', have_x11)
+cdata.set('HAVE_X11_CLIENT', have_x11_client)
 
 cdata.set('HAVE_FDWALK', cc.has_function('fdwalk'))
 cdata.set('HAVE_MALLINFO', cc.has_function('mallinfo'))
@@ -335,7 +337,7 @@ subdir('js')
 subdir('src')
 subdir('po')
 
-if get_option('tests') and have_xwayland
+if get_option('tests') and have_x11_client
   subdir('tests')
 endif
 
@@ -352,7 +354,8 @@ meson.add_dist_script('build-aux/generate-stylesheets.py')
 meson.add_dist_script('build-aux/check-version.py', meson.project_version(), 'NEWS')
 
 summary_options = {
-  'have_xwayland': have_xwayland,
+  'x11': have_x11,
+  'x11_client': have_x11_client,
   'camera_monitor': get_option('camera_monitor'),
   'networkmanager': get_option('networkmanager'),
   'systemd': get_option('systemd'),
