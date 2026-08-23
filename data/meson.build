@@ -155,6 +155,17 @@ if have_systemd
     install_dir: systemduserunitdir
   )
 
+  # GDM's greeter instantiates the shell as org.gnome.Shell@gdm.service -
+  # neither the wayland nor the x11 concrete unit above matches that
+  # instance name, so the old generic template (still used with --mode=%i)
+  # has to stay installed alongside them for the greeter to start at all.
+  configure_file(
+    input: 'org.gnome.Shell@.service.in',
+    output: 'org.gnome.Shell@.service',
+    configuration: unitconf,
+    install_dir: systemduserunitdir
+  )
+
   units = files('org.gnome.Shell-disable-extensions.service')
   targetconf = configuration_data()
   sessions_wants = []
