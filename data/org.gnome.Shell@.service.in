@@ -12,6 +12,8 @@ Requisite=gnome-session-initialized.target
 PartOf=gnome-session-initialized.target
 Before=gnome-session-initialized.target
 
+AssertEnvironment=XDG_SESSION_TYPE=wayland
+
 [Service]
 Slice=session.slice
 Type=notify
