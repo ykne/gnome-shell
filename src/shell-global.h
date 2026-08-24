@@ -5,6 +5,7 @@
 #include <glib-object.h>
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <meta/meta-plugin.h>
+#include <mtk/mtk.h>
 #include <st/st.h>
 
 G_BEGIN_DECLS
@@ -50,6 +51,10 @@ void    shell_global_get_pointer             (ShellGlobal         *global,
                                               int                 *x,
                                               int                 *y,
                                               ClutterModifierType *mods);
+
+void    shell_global_set_stage_input_region  (ShellGlobal  *global,
+                                              MtkRectangle *rects,
+                                              int           n_rects);
 
 typedef struct {
   guint glibc_uordblks;
