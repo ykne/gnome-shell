@@ -1109,6 +1109,48 @@ shell_global_get_pointer (ShellGlobal         *global,
 }
 
 /**
+ * shell_global_set_stage_input_region:
+ * @global: the #ShellGlobal
+ * @rects: (array length=n_rects): the rectangles that make up
+ *   the input region, in stage coordinates
+ * @n_rects: the number of rectangles in @rects
+ *
+ * Sets the input region of the stage overlay window to the union of
+ * @rects. Used on X11 only; a no-op when not running the X11 CM
+ * backend (Meta.is_wayland_compositor()).
+ */
+void
+shell_global_set_stage_input_region (ShellGlobal  *global,
+                                     MtkRectangle *rects,
+                                     int           n_rects)
+{
+#ifdef HAVE_X11
+  MetaX11Display *x11_display;
+
+  x11_display = meta_display_get_x11_display (global->meta_display);
+  if (x11_display)
+    {
+      g_autofree XRectangle *xrects = g_new (XRectangle, n_rects);
+      int i;
+
+      /* MtkRectangle fields are int; XRectangle's are short/unsigned
+       * short, so this truncates coordinates/sizes beyond +/-32767 -
+       * the same limitation the original upstream code being restored
+       * here had. */
+      for (i = 0; i < n_rects; i++)
+        {
+          xrects[i].x = (short) rects[i].x;
+          xrects[i].y = (short) rects[i].y;
+          xrects[i].width = (unsigned short) rects[i].width;
+          xrects[i].height = (unsigned short) rects[i].height;
+        }
+
+      meta_x11_display_set_stage_input_region (x11_display, xrects, n_rects);
+    }
+#endif
+}
+
+/**
  * shell_global_get_switcheroo_control:
  * @global: A #ShellGlobal
  *
