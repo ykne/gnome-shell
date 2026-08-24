@@ -1144,7 +1144,17 @@ export const LayoutManager = GObject.registerClass({
             struts.push(strut);
         }
 
-        if (wantsInputRegion)
+        // Don't let an empty computed region (nothing currently opted in
+        // via affectsInputRegion - e.g. early in startup, or whenever no
+        // dialog/popup happens to want click-outside-to-dismiss tracking
+        // right now) blank out the stage overlay's input region entirely.
+        // An empty region here means "pass all input through to whatever
+        // real window is stacked below" (meta_x11_display_set_stage_input_
+        // region()'s own doc comment), which - since the shell's own stage
+        // is itself a child of that overlay - means the shell stops
+        // receiving basically all input (clicks, non-grabbed keys) until
+        // something else happens to populate rects again.
+        if (wantsInputRegion && rects.length > 0)
             global.set_stage_input_region(rects);
 
         this._isPopupWindowVisible = isPopupMenuVisible;
