@@ -186,6 +186,7 @@ class UiActor extends St.Widget {
 const defaultParams = {
     trackFullscreen: false,
     affectsStruts: false,
+    affectsInputRegion: true,
 };
 
 export const LayoutManager = GObject.registerClass({
@@ -508,6 +509,15 @@ export const LayoutManager = GObject.registerClass({
             layoutManager: this,
             monitorIndex,
         });
+
+        /* _backgroundGroup is added straight to global.window_group, not
+         * through addChrome()/trackChrome(), so backgroundActor was never
+         * counted toward the stage's input region under the X11 CM
+         * backend - meaning clicks on the desktop background (its own
+         * reactive click/long-press handling, e.g. the background menu
+         * below) fell outside the region and never reached it. Track it
+         * so its full monitor bounds are included. */
+        this.trackChrome(bgManager.backgroundActor);
 
         bgManager.connect('changed', this._addBackgroundMenu.bind(this));
         this._addBackgroundMenu(bgManager);
