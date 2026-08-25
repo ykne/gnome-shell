@@ -1243,17 +1243,37 @@ export const LayoutManager = GObject.registerClass({
                 if (!windowActor.visible || metaWindow.minimized)
                     continue;
 
-                // Use buffer_rect, not frame_rect: frame_rect excludes
-                // the invisible CSD resize border/shadow margin (see
-                // meta_window_client_rect_to_frame_rect()'s doc comment),
-                // but on X11 that margin is real, input-sensitive space
-                // belonging to the client's own toplevel ("server-side
-                // geometry of the toplevel window" - buffer_rect's doc
-                // comment). Punching the hole to frame_rect size left
-                // that margin still covered by the stage's own input
-                // region, so pointer motion/clicks in it never reached
-                // the client - no resize cursor, no drag-resize.
-                const hole = metaWindow.get_buffer_rect();
+                // frame_rect excludes the invisible CSD resize border/
+                // shadow margin entirely, but on X11 part of that margin
+                // *is* real, input-sensitive space: GTK4 itself sets its
+                // X11 input shape to the visible border-box inflated by
+                // a fixed RESIZE_HANDLE_SIZE (gtk/gtkwindow.c,
+                // update_realized_window_properties() - 12px as of
+                // GTK 4.22), regardless of how much wider the CSS
+                // box-shadow itself is. Punching the hole to plain
+                // frame_rect left that 12px resize-grab ring uncovered,
+                // so pointer motion/clicks there never reached the
+                // client - no resize cursor, no drag-resize.
+                //
+                // Punching it to the full buffer_rect (which also
+                // includes the box-shadow's blur/spread, often wider
+                // than 12px) overcorrects: it carves a hole bigger than
+                // any window actually claims for input, so a window
+                // sitting flush against a panel corner (e.g. the
+                // top-left Activities button) leaves a dead ring that
+                // neither the panel nor the client can claim - input
+                // there silently falls through to mutter's guard window
+                // instead, making the corner unresponsive. Match GTK's
+                // own math instead: frame_rect inflated by the same
+                // fixed 12px on every side.
+                const RESIZE_HANDLE_SIZE = 12;
+                const frameRect = metaWindow.get_frame_rect();
+                const hole = new Mtk.Rectangle({
+                    x: frameRect.x - RESIZE_HANDLE_SIZE,
+                    y: frameRect.y - RESIZE_HANDLE_SIZE,
+                    width: frameRect.width + RESIZE_HANDLE_SIZE * 2,
+                    height: frameRect.height + RESIZE_HANDLE_SIZE * 2,
+                });
                 finalRects = finalRects.flatMap(r => subtractRectFromRect(r, hole));
 
                 // Guard against pathological blowup (many overlapping
