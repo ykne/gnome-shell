@@ -27,6 +27,49 @@ const HOT_CORNER_PRESSURE_TIMEOUT = 1000; // ms
 const SCREEN_TRANSITION_DELAY = 250; // ms
 const SCREEN_TRANSITION_DURATION = 500; // ms
 
+/* Returns the parts of `rect` not covered by `hole`, as 0-4 Mtk.Rectangles
+ * (standard axis-aligned rectangle difference). Used by _updateRegions() to
+ * punch holes for real client windows out of the stage's X11 input-shape
+ * region - see the comment at that call site for why this is needed.
+ *
+ * shell_global_set_stage_input_region() (src/shell-global.c) casts each
+ * rectangle's width/height to an XRectangle's *unsigned* short before
+ * handing it to X - a negative value here wraps around to a huge unsigned
+ * one instead of erroring, which is fatal to the X connection rather than
+ * a harmless bad-shape request. A window mid-creation/destruction can
+ * hand back a degenerate MetaRectangle (zero or negative width/height),
+ * so guard against that explicitly rather than trusting rect/hole to
+ * always be well-formed. */
+function subtractRectFromRect(rect, hole) {
+    if (rect.width <= 0 || rect.height <= 0)
+        return [];
+    if (hole.width <= 0 || hole.height <= 0)
+        return [rect];
+
+    const rx1 = rect.x, ry1 = rect.y;
+    const rx2 = rect.x + rect.width, ry2 = rect.y + rect.height;
+    const hx1 = hole.x, hy1 = hole.y;
+    const hx2 = hole.x + hole.width, hy2 = hole.y + hole.height;
+
+    if (hx2 <= rx1 || hx1 >= rx2 || hy2 <= ry1 || hy1 >= ry2)
+        return [rect];
+
+    const pieces = [];
+
+    if (hy1 > ry1)
+        pieces.push(new Mtk.Rectangle({x: rx1, y: ry1, width: rx2 - rx1, height: hy1 - ry1}));
+    if (hy2 < ry2)
+        pieces.push(new Mtk.Rectangle({x: rx1, y: hy2, width: rx2 - rx1, height: ry2 - hy2}));
+
+    const midY1 = Math.max(ry1, hy1), midY2 = Math.min(ry2, hy2);
+    if (hx1 > rx1 && midY2 > midY1)
+        pieces.push(new Mtk.Rectangle({x: rx1, y: midY1, width: hx1 - rx1, height: midY2 - midY1}));
+    if (hx2 < rx2 && midY2 > midY1)
+        pieces.push(new Mtk.Rectangle({x: hx2, y: midY1, width: rx2 - hx2, height: midY2 - midY1}));
+
+    return pieces;
+}
+
 function isPopupMetaWindow(actor) {
     switch (actor.meta_window.get_window_type()) {
     case Meta.WindowType.DROPDOWN_MENU:
@@ -1076,10 +1119,15 @@ export const LayoutManager = GObject.registerClass({
     }
 
     _windowsRestacked() {
-        if (this._isPopupWindowVisible !== global.top_window_group.get_children().some(isPopupMetaWindow)) {
+        if (this._isPopupWindowVisible !== global.top_window_group.get_children().some(isPopupMetaWindow))
             this._updateVisibility();
-            this._queueUpdateRegions();
-        }
+
+        /* _updateRegions() now punches a hole in the stage's input region
+         * for every mapped client window (see the comment there), so it
+         * needs recomputing on every restack - not just when popup-menu
+         * visibility toggles, which was the only thing this used to care
+         * about. A restack also fires for a plain new/closed window. */
+        this._queueUpdateRegions();
     }
 
     _updateRegions() {
@@ -1177,8 +1225,51 @@ export const LayoutManager = GObject.registerClass({
         // is itself a child of that overlay - means the shell stops
         // receiving basically all input (clicks, non-grabbed keys) until
         // something else happens to populate rects again.
-        if (wantsInputRegion && rects.length > 0)
-            global.set_stage_input_region(rects);
+        if (wantsInputRegion && rects.length > 0) {
+            /* rects includes backgroundActor's full-monitor bounds (see
+             * the addChrome()/trackChrome() input-region commit just
+             * before this one) alongside actual chrome like the top bar
+             * and dash. Passing it straight to set_stage_input_region()
+             * makes the stage's overlay claim input everywhere, forever
+             * - XShape input regions aren't stacking-aware, so real
+             * client windows underneath (Firefox, any normal app) never
+             * get a click through no matter what's actually on top at a
+             * given pixel. Punch a hole for every mapped, visible,
+             * non-popup client window so input passes through to it
+             * instead. Struts already keep normal windows from
+             * overlapping panels/dash under normal placement, so this
+             * doesn't need to special-case chrome vs. background rects. */
+            let finalRects = rects;
+            for (const windowActor of global.get_window_actors()) {
+                const metaWindow = windowActor.meta_window;
+                if (!metaWindow || metaWindow.is_override_redirect())
+                    continue;
+                if (!windowActor.visible || metaWindow.minimized)
+                    continue;
+
+                const hole = metaWindow.get_frame_rect();
+                finalRects = finalRects.flatMap(r => subtractRectFromRect(r, hole));
+
+                // Guard against pathological blowup (many overlapping
+                // holes can multiply the piece count) rather than ever
+                // hand X an enormous rect list.
+                if (finalRects.length > 256) {
+                    finalRects = rects;
+                    break;
+                }
+            }
+
+            // Belt-and-suspenders: never let a negative or zero-sized
+            // rectangle reach shell_global_set_stage_input_region(), and
+            // never call it with an empty list (see the comment above -
+            // that would blank the region out entirely).
+            finalRects = finalRects.filter(r => r.width > 0 && r.height > 0);
+            if (finalRects.length === 0)
+                finalRects = rects.filter(r => r.width > 0 && r.height > 0);
+
+            if (finalRects.length > 0)
+                global.set_stage_input_region(finalRects);
+        }
 
         this._isPopupWindowVisible = isPopupMenuVisible;
 
