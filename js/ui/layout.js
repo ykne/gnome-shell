@@ -382,6 +382,15 @@ export const LayoutManager = GObject.registerClass({
             this._windowsRestacked.bind(this));
         display.connect('in-fullscreen-changed',
             this._updateFullscreen.bind(this));
+        // A plain interactive resize/move doesn't restack, so the
+        // 'restacked' hook above never re-punches the input-region hole
+        // for the window's new size - it stays sized for wherever the
+        // window was before the drag, leaving the freshly-exposed (or
+        // freshly-covered) edge unreachable until something else happens
+        // to trigger a recompute. grab-op-end fires once whenever an
+        // interactive move/resize (or similar grab op) finishes.
+        display.connect('grab-op-end',
+            this._queueUpdateRegions.bind(this));
 
         const monitorManager = global.backend.get_monitor_manager();
         monitorManager.connectObject(
@@ -1234,7 +1243,17 @@ export const LayoutManager = GObject.registerClass({
                 if (!windowActor.visible || metaWindow.minimized)
                     continue;
 
-                const hole = metaWindow.get_frame_rect();
+                // Use buffer_rect, not frame_rect: frame_rect excludes
+                // the invisible CSD resize border/shadow margin (see
+                // meta_window_client_rect_to_frame_rect()'s doc comment),
+                // but on X11 that margin is real, input-sensitive space
+                // belonging to the client's own toplevel ("server-side
+                // geometry of the toplevel window" - buffer_rect's doc
+                // comment). Punching the hole to frame_rect size left
+                // that margin still covered by the stage's own input
+                // region, so pointer motion/clicks in it never reached
+                // the client - no resize cursor, no drag-resize.
+                const hole = metaWindow.get_buffer_rect();
                 finalRects = finalRects.flatMap(r => subtractRectFromRect(r, hole));
 
                 // Guard against pathological blowup (many overlapping
