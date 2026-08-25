@@ -1244,52 +1244,69 @@ export const LayoutManager = GObject.registerClass({
              * overlapping panels/dash under normal placement, so this
              * doesn't need to special-case chrome vs. background rects. */
             let finalRects = rects;
-            for (const windowActor of global.get_window_actors()) {
-                const metaWindow = windowActor.meta_window;
-                if (!metaWindow || metaWindow.is_override_redirect())
-                    continue;
-                if (!windowActor.visible || metaWindow.minimized)
-                    continue;
+            /* While the overview is showing (or animating to/from
+             * showing), windows are only visible as repositioned/scaled
+             * previews - their real geometry, still fully mapped at its
+             * actual on-screen position underneath, must NOT get a
+             * passthrough hole punched in it, or clicks (and other
+             * input) landing within that real geometry fall straight
+             * through to the client instead of the shell, regardless of
+             * what the overview is visually showing on top of it at
+             * that pixel. Skip the whole per-window hole-punch below in
+             * that case, so the shell keeps its full, unbroken claim on
+             * the input region - see project memory
+             * project_input_pointer_warp_freeze.md for the full
+             * analysis (independently confirmed via a real, unrelated
+             * client window - e.g. Firefox - visibly reacting to
+             * pointer/keyboard input while hidden behind the overview). */
+            if (!Main.overview.visible) {
+                for (const windowActor of global.get_window_actors()) {
+                    const metaWindow = windowActor.meta_window;
+                    if (!metaWindow || metaWindow.is_override_redirect())
+                        continue;
+                    if (!windowActor.visible || metaWindow.minimized)
+                        continue;
 
-                // frame_rect excludes the invisible CSD resize border/
-                // shadow margin entirely, but on X11 part of that margin
-                // *is* real, input-sensitive space: GTK4 itself sets its
-                // X11 input shape to the visible border-box inflated by
-                // a fixed RESIZE_HANDLE_SIZE (gtk/gtkwindow.c,
-                // update_realized_window_properties() - 12px as of
-                // GTK 4.22), regardless of how much wider the CSS
-                // box-shadow itself is. Punching the hole to plain
-                // frame_rect left that 12px resize-grab ring uncovered,
-                // so pointer motion/clicks there never reached the
-                // client - no resize cursor, no drag-resize.
-                //
-                // Punching it to the full buffer_rect (which also
-                // includes the box-shadow's blur/spread, often wider
-                // than 12px) overcorrects: it carves a hole bigger than
-                // any window actually claims for input, so a window
-                // sitting flush against a panel corner (e.g. the
-                // top-left Activities button) leaves a dead ring that
-                // neither the panel nor the client can claim - input
-                // there silently falls through to mutter's guard window
-                // instead, making the corner unresponsive. Match GTK's
-                // own math instead: frame_rect inflated by the same
-                // fixed 12px on every side.
-                const RESIZE_HANDLE_SIZE = 12;
-                const frameRect = metaWindow.get_frame_rect();
-                const hole = new Mtk.Rectangle({
-                    x: frameRect.x - RESIZE_HANDLE_SIZE,
-                    y: frameRect.y - RESIZE_HANDLE_SIZE,
-                    width: frameRect.width + RESIZE_HANDLE_SIZE * 2,
-                    height: frameRect.height + RESIZE_HANDLE_SIZE * 2,
-                });
-                finalRects = finalRects.flatMap(r => subtractRectFromRect(r, hole));
+                    // frame_rect excludes the invisible CSD resize border/
+                    // shadow margin entirely, but on X11 part of that margin
+                    // *is* real, input-sensitive space: GTK4 itself sets its
+                    // X11 input shape to the visible border-box inflated by
+                    // a fixed RESIZE_HANDLE_SIZE (gtk/gtkwindow.c,
+                    // update_realized_window_properties() - 12px as of
+                    // GTK 4.22), regardless of how much wider the CSS
+                    // box-shadow itself is. Punching the hole to plain
+                    // frame_rect left that 12px resize-grab ring uncovered,
+                    // so pointer motion/clicks there never reached the
+                    // client - no resize cursor, no drag-resize.
+                    //
+                    // Punching it to the full buffer_rect (which also
+                    // includes the box-shadow's blur/spread, often wider
+                    // than 12px) overcorrects: it carves a hole bigger than
+                    // any window actually claims for input, so a window
+                    // sitting flush against a panel corner (e.g. the
+                    // top-left Activities button) leaves a dead ring that
+                    // neither the panel nor the client can claim - input
+                    // there silently falls through to mutter's guard window
+                    // instead, making the corner unresponsive. Match GTK's
+                    // own math instead: frame_rect inflated by the same
+                    // fixed 12px on every side.
+                    const RESIZE_HANDLE_SIZE = 12;
+                    const frameRect = metaWindow.get_frame_rect();
+                    const hole = new Mtk.Rectangle({
+                        x: frameRect.x - RESIZE_HANDLE_SIZE,
+                        y: frameRect.y - RESIZE_HANDLE_SIZE,
+                        width: frameRect.width + RESIZE_HANDLE_SIZE * 2,
+                        height: frameRect.height + RESIZE_HANDLE_SIZE * 2,
+                    });
+                    finalRects = finalRects.flatMap(r => subtractRectFromRect(r, hole));
 
-                // Guard against pathological blowup (many overlapping
-                // holes can multiply the piece count) rather than ever
-                // hand X an enormous rect list.
-                if (finalRects.length > 256) {
-                    finalRects = rects;
-                    break;
+                    // Guard against pathological blowup (many overlapping
+                    // holes can multiply the piece count) rather than ever
+                    // hand X an enormous rect list.
+                    if (finalRects.length > 256) {
+                        finalRects = rects;
+                        break;
+                    }
                 }
             }
 
