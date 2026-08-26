@@ -840,6 +840,7 @@ export function openWelcomeDialog() {
  * and switching out of the overview if it's currently active
  */
 export function activateWindow(window, time, workspaceNum) {
+    log(`INSTR activateWindow enter t=${GLib.get_monotonic_time()}`);
     const workspaceManager = global.workspace_manager;
     const activeWorkspaceNum = workspaceManager.get_active_workspace_index();
     const windowWorkspaceNum = workspaceNum !== undefined ? workspaceNum : window.get_workspace().index();
@@ -849,13 +850,20 @@ export function activateWindow(window, time, workspaceNum) {
 
     if (windowWorkspaceNum !== activeWorkspaceNum) {
         const workspace = workspaceManager.get_workspace_by_index(windowWorkspaceNum);
+        log(`INSTR activateWindow pre-activate_with_focus t=${GLib.get_monotonic_time()}`);
         workspace.activate_with_focus(window, time);
+        log(`INSTR activateWindow post-activate_with_focus t=${GLib.get_monotonic_time()}`);
     } else {
+        log(`INSTR activateWindow pre-window.activate t=${GLib.get_monotonic_time()}`);
         window.activate(time);
+        log(`INSTR activateWindow post-window.activate t=${GLib.get_monotonic_time()}`);
     }
 
+    log(`INSTR activateWindow pre-overview.hide t=${GLib.get_monotonic_time()}`);
     overview.hide();
+    log(`INSTR activateWindow post-overview.hide t=${GLib.get_monotonic_time()}`);
     panel.closeCalendar();
+    log(`INSTR activateWindow exit t=${GLib.get_monotonic_time()}`);
 }
 
 /**

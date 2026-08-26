@@ -1146,6 +1146,10 @@ export const LayoutManager = GObject.registerClass({
             Main.modalCount === 0 &&
             !Meta.is_wayland_compositor();
 
+        log(`INSTR _updateRegions enter overview.visible=${Main.overview.visible} ` +
+            `wantsInputRegion=${wantsInputRegion} isPopupMenuVisible=${isPopupMenuVisible} ` +
+            `modalCount=${Main.modalCount} t=${GLib.get_monotonic_time()}`);
+
         for (i = 0; i < this._trackedActors.length; i++) {
             const actorData = this._trackedActors[i];
             if (!(actorData.affectsInputRegion && wantsInputRegion) && !actorData.affectsStruts)
@@ -1256,6 +1260,9 @@ export const LayoutManager = GObject.registerClass({
              * analysis (independently confirmed via a real, unrelated
              * client window - e.g. Firefox - visibly reacting to
              * pointer/keyboard input while hidden behind the overview). */
+            log(`INSTR _updateRegions hole-punch-guard overview.visible=${Main.overview.visible} ` +
+                `willPunch=${!Main.overview.visible} numWindowActors=${global.get_window_actors().length} ` +
+                `t=${GLib.get_monotonic_time()}`);
             if (!Main.overview.visible) {
                 for (const windowActor of global.get_window_actors()) {
                     const metaWindow = windowActor.meta_window;
@@ -1263,6 +1270,9 @@ export const LayoutManager = GObject.registerClass({
                         continue;
                     if (!windowActor.visible || metaWindow.minimized)
                         continue;
+
+                    log(`INSTR _updateRegions punching hole for '${metaWindow.title}' ` +
+                        `t=${GLib.get_monotonic_time()}`);
 
                     // frame_rect excludes the invisible CSD resize border/
                     // shadow margin entirely, but on X11 part of that margin
