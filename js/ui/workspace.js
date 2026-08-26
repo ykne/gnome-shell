@@ -1392,12 +1392,17 @@ class Workspace extends St.Widget {
     }
 
     _onCloneSelected(clone, time) {
+        log(`INSTR onCloneSelected enter t=${GLib.get_monotonic_time()}`);
         const wsIndex = this.metaWorkspace?.index();
 
-        if (this._shouldLeaveOverview())
+        if (this._shouldLeaveOverview()) {
+            log(`INSTR onCloneSelected pre-activateWindow t=${GLib.get_monotonic_time()}`);
             Main.activateWindow(clone.metaWindow, time, wsIndex);
-        else
+            log(`INSTR onCloneSelected post-activateWindow t=${GLib.get_monotonic_time()}`);
+        } else {
             this.metaWorkspace?.activate(time);
+        }
+        log(`INSTR onCloneSelected exit t=${GLib.get_monotonic_time()}`);
     }
 
     // Draggable target interface
