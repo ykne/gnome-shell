@@ -27,49 +27,6 @@ const HOT_CORNER_PRESSURE_TIMEOUT = 1000; // ms
 const SCREEN_TRANSITION_DELAY = 250; // ms
 const SCREEN_TRANSITION_DURATION = 500; // ms
 
-/* Returns the parts of `rect` not covered by `hole`, as 0-4 Mtk.Rectangles
- * (standard axis-aligned rectangle difference). Used by _updateRegions() to
- * punch holes for real client windows out of the stage's X11 input-shape
- * region - see the comment at that call site for why this is needed.
- *
- * shell_global_set_stage_input_region() (src/shell-global.c) casts each
- * rectangle's width/height to an XRectangle's *unsigned* short before
- * handing it to X - a negative value here wraps around to a huge unsigned
- * one instead of erroring, which is fatal to the X connection rather than
- * a harmless bad-shape request. A window mid-creation/destruction can
- * hand back a degenerate MetaRectangle (zero or negative width/height),
- * so guard against that explicitly rather than trusting rect/hole to
- * always be well-formed. */
-function subtractRectFromRect(rect, hole) {
-    if (rect.width <= 0 || rect.height <= 0)
-        return [];
-    if (hole.width <= 0 || hole.height <= 0)
-        return [rect];
-
-    const rx1 = rect.x, ry1 = rect.y;
-    const rx2 = rect.x + rect.width, ry2 = rect.y + rect.height;
-    const hx1 = hole.x, hy1 = hole.y;
-    const hx2 = hole.x + hole.width, hy2 = hole.y + hole.height;
-
-    if (hx2 <= rx1 || hx1 >= rx2 || hy2 <= ry1 || hy1 >= ry2)
-        return [rect];
-
-    const pieces = [];
-
-    if (hy1 > ry1)
-        pieces.push(new Mtk.Rectangle({x: rx1, y: ry1, width: rx2 - rx1, height: hy1 - ry1}));
-    if (hy2 < ry2)
-        pieces.push(new Mtk.Rectangle({x: rx1, y: hy2, width: rx2 - rx1, height: ry2 - hy2}));
-
-    const midY1 = Math.max(ry1, hy1), midY2 = Math.min(ry2, hy2);
-    if (hx1 > rx1 && midY2 > midY1)
-        pieces.push(new Mtk.Rectangle({x: rx1, y: midY1, width: hx1 - rx1, height: midY2 - midY1}));
-    if (hx2 < rx2 && midY2 > midY1)
-        pieces.push(new Mtk.Rectangle({x: hx2, y: midY1, width: rx2 - hx2, height: midY2 - midY1}));
-
-    return pieces;
-}
-
 function isPopupMetaWindow(actor) {
     switch (actor.meta_window.get_window_type()) {
     case Meta.WindowType.DROPDOWN_MENU:
@@ -387,15 +344,6 @@ export const LayoutManager = GObject.registerClass({
             this._windowsRestacked.bind(this));
         display.connect('in-fullscreen-changed',
             this._updateFullscreen.bind(this));
-        // A plain interactive resize/move doesn't restack, so the
-        // 'restacked' hook above never re-punches the input-region hole
-        // for the window's new size - it stays sized for wherever the
-        // window was before the drag, leaving the freshly-exposed (or
-        // freshly-covered) edge unreachable until something else happens
-        // to trigger a recompute. grab-op-end fires once whenever an
-        // interactive move/resize (or similar grab op) finishes.
-        display.connect('grab-op-end',
-            this._queueUpdateRegions.bind(this));
 
         const monitorManager = global.backend.get_monitor_manager();
         monitorManager.connectObject(
@@ -1120,15 +1068,10 @@ export const LayoutManager = GObject.registerClass({
     }
 
     _windowsRestacked() {
-        if (this._isPopupWindowVisible !== global.top_window_group.get_children().some(isPopupMetaWindow))
+        if (this._isPopupWindowVisible !== global.top_window_group.get_children().some(isPopupMetaWindow)) {
             this._updateVisibility();
-
-        /* _updateRegions() now punches a hole in the stage's input region
-         * for every mapped client window (see the comment there), so it
-         * needs recomputing on every restack - not just when popup-menu
-         * visibility toggles, which was the only thing this used to care
-         * about. A restack also fires for a plain new/closed window. */
-        this._queueUpdateRegions();
+            this._queueUpdateRegions();
+        }
     }
 
     _updateRegions() {
@@ -1145,10 +1088,6 @@ export const LayoutManager = GObject.registerClass({
             !isPopupMenuVisible &&
             Main.modalCount === 0 &&
             !Meta.is_wayland_compositor();
-
-        log(`INSTR _updateRegions enter overview.visible=${Main.overview.visible} ` +
-            `wantsInputRegion=${wantsInputRegion} isPopupMenuVisible=${isPopupMenuVisible} ` +
-            `modalCount=${Main.modalCount} t=${GLib.get_monotonic_time()}`);
 
         for (i = 0; i < this._trackedActors.length; i++) {
             const actorData = this._trackedActors[i];
@@ -1220,114 +1159,8 @@ export const LayoutManager = GObject.registerClass({
             struts.push(strut);
         }
 
-        // Don't let an empty computed region (nothing currently opted in
-        // via affectsInputRegion - e.g. early in startup, or whenever no
-        // dialog/popup happens to want click-outside-to-dismiss tracking
-        // right now) blank out the stage overlay's input region entirely.
-        // An empty region here means "pass all input through to whatever
-        // real window is stacked below" (meta_x11_display_set_stage_input_
-        // region()'s own doc comment), which - since the shell's own stage
-        // is itself a child of that overlay - means the shell stops
-        // receiving basically all input (clicks, non-grabbed keys) until
-        // something else happens to populate rects again.
-        if (wantsInputRegion && rects.length > 0) {
-            /* rects includes backgroundActor's full-monitor bounds (see
-             * the addChrome()/trackChrome() input-region commit just
-             * before this one) alongside actual chrome like the top bar
-             * and dash. Passing it straight to set_stage_input_region()
-             * makes the stage's overlay claim input everywhere, forever
-             * - XShape input regions aren't stacking-aware, so real
-             * client windows underneath (Firefox, any normal app) never
-             * get a click through no matter what's actually on top at a
-             * given pixel. Punch a hole for every mapped, visible,
-             * non-popup client window so input passes through to it
-             * instead. Struts already keep normal windows from
-             * overlapping panels/dash under normal placement, so this
-             * doesn't need to special-case chrome vs. background rects. */
-            let finalRects = rects;
-            /* While the overview is showing (or animating to/from
-             * showing), windows are only visible as repositioned/scaled
-             * previews - their real geometry, still fully mapped at its
-             * actual on-screen position underneath, must NOT get a
-             * passthrough hole punched in it, or clicks (and other
-             * input) landing within that real geometry fall straight
-             * through to the client instead of the shell, regardless of
-             * what the overview is visually showing on top of it at
-             * that pixel. Skip the whole per-window hole-punch below in
-             * that case, so the shell keeps its full, unbroken claim on
-             * the input region - see project memory
-             * project_input_pointer_warp_freeze.md for the full
-             * analysis (independently confirmed via a real, unrelated
-             * client window - e.g. Firefox - visibly reacting to
-             * pointer/keyboard input while hidden behind the overview). */
-            log(`INSTR _updateRegions hole-punch-guard overview.visible=${Main.overview.visible} ` +
-                `willPunch=${!Main.overview.visible} numWindowActors=${global.get_window_actors().length} ` +
-                `t=${GLib.get_monotonic_time()}`);
-            if (!Main.overview.visible) {
-                for (const windowActor of global.get_window_actors()) {
-                    const metaWindow = windowActor.meta_window;
-                    if (!metaWindow || metaWindow.is_override_redirect())
-                        continue;
-                    if (!windowActor.visible || metaWindow.minimized)
-                        continue;
-
-                    log(`INSTR _updateRegions punching hole for '${metaWindow.title}' ` +
-                        `t=${GLib.get_monotonic_time()}`);
-
-                    // frame_rect excludes the invisible CSD resize border/
-                    // shadow margin entirely, but on X11 part of that margin
-                    // *is* real, input-sensitive space: GTK4 itself sets its
-                    // X11 input shape to the visible border-box inflated by
-                    // a fixed RESIZE_HANDLE_SIZE (gtk/gtkwindow.c,
-                    // update_realized_window_properties() - 12px as of
-                    // GTK 4.22), regardless of how much wider the CSS
-                    // box-shadow itself is. Punching the hole to plain
-                    // frame_rect left that 12px resize-grab ring uncovered,
-                    // so pointer motion/clicks there never reached the
-                    // client - no resize cursor, no drag-resize.
-                    //
-                    // Punching it to the full buffer_rect (which also
-                    // includes the box-shadow's blur/spread, often wider
-                    // than 12px) overcorrects: it carves a hole bigger than
-                    // any window actually claims for input, so a window
-                    // sitting flush against a panel corner (e.g. the
-                    // top-left Activities button) leaves a dead ring that
-                    // neither the panel nor the client can claim - input
-                    // there silently falls through to mutter's guard window
-                    // instead, making the corner unresponsive. Match GTK's
-                    // own math instead: frame_rect inflated by the same
-                    // fixed 12px on every side.
-                    const RESIZE_HANDLE_SIZE = 12;
-                    const frameRect = metaWindow.get_frame_rect();
-                    const hole = new Mtk.Rectangle({
-                        x: frameRect.x - RESIZE_HANDLE_SIZE,
-                        y: frameRect.y - RESIZE_HANDLE_SIZE,
-                        width: frameRect.width + RESIZE_HANDLE_SIZE * 2,
-                        height: frameRect.height + RESIZE_HANDLE_SIZE * 2,
-                    });
-                    finalRects = finalRects.flatMap(r => subtractRectFromRect(r, hole));
-
-                    // Guard against pathological blowup (many overlapping
-                    // holes can multiply the piece count) rather than ever
-                    // hand X an enormous rect list.
-                    if (finalRects.length > 256) {
-                        finalRects = rects;
-                        break;
-                    }
-                }
-            }
-
-            // Belt-and-suspenders: never let a negative or zero-sized
-            // rectangle reach shell_global_set_stage_input_region(), and
-            // never call it with an empty list (see the comment above -
-            // that would blank the region out entirely).
-            finalRects = finalRects.filter(r => r.width > 0 && r.height > 0);
-            if (finalRects.length === 0)
-                finalRects = rects.filter(r => r.width > 0 && r.height > 0);
-
-            if (finalRects.length > 0)
-                global.set_stage_input_region(finalRects);
-        }
+        if (wantsInputRegion)
+            global.set_stage_input_region(rects);
 
         this._isPopupWindowVisible = isPopupMenuVisible;
 
