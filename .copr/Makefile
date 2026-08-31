@@ -18,7 +18,7 @@ VERSION := 50.4
 .PHONY: srpm
 srpm:
 	set -e; \
-	dnf install -y meson; \
+	dnf install -y git-core meson; \
 	meson subprojects download gvc jasmine-gjs; \
 	hash=$$(git rev-parse --short=8 HEAD); \
 	workdir=$$(mktemp -d); \
