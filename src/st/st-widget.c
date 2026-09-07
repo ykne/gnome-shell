@@ -699,7 +699,13 @@ st_widget_enter (ClutterActor *actor,
       stage = CLUTTER_STAGE (clutter_actor_get_stage (actor));
       target = clutter_stage_get_event_actor (stage, event);
 
-      if (clutter_actor_contains (actor, target))
+      /* target can legitimately be NULL when the event's actor can't be
+       * resolved; since Clutter already decided to deliver this ENTER
+       * to us, treat an unresolvable target as genuinely hovering rather
+       * than defensively as "outside" (clutter_actor_contains() requires
+       * a non-NULL descendant and would otherwise hit an assertion here).
+       */
+      if (!target || clutter_actor_contains (actor, target))
         st_widget_set_hover (ST_WIDGET (actor), TRUE);
       else
         {
