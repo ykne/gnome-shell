@@ -396,16 +396,23 @@ const Key = GObject.registerClass({
             return Clutter.EVENT_STOP;
         });
         button.connect('touch-event', (actor, event) => {
-            // Pointer events are handled in the key's `notify::hover`
-            // handler. They can't possibly reach here on Wayland, but
-            // for single-touch cases. Besides, the X11 passive touch grab
-            // set up by Mutter will make us see first the touch events
-            // and later the pointer events, so it will look like two
-            // unrelated series of events, we want to avoid double handling
-            // in these cases.
-            if (!Meta.is_wayland_compositor())
-                return Clutter.EVENT_PROPAGATE;
-
+            // This used to early-return under X11 on the assumption that
+            // mutter's own X11 passive touch grab would also deliver a
+            // pointer-emulated BUTTON_PRESS/BUTTON_RELEASE pair for the
+            // same gesture, handled instead via 'button-press-event'/
+            // 'button-release-event' above. Live-traced on real
+            // touchscreen hardware: that assumption doesn't hold for
+            // mutter's own compositing stage window under X11 - a window
+            // that itself selects and accepts raw XI2 touch (as mutter's
+            // does, see meta-seat-x11.c) never also receives a pointer-
+            // emulated companion for that same touch; pointer emulation
+            // is the X11 fallback specifically for clients that don't
+            // handle touch directly. Without this handler running, taps
+            // on the OSK's own keys under X11 never reached _press()/
+            // _release() at all - confirmed via clutter_actor_contains()
+            // gdb backtraces and OSKDBG event-chain tracing showing only
+            // raw TOUCH_BEGIN/TOUCH_END ever delivered, never
+            // BUTTON_PRESS/BUTTON_RELEASE, for this actor.
             const slot = event.get_event_sequence().get_slot();
 
             if (!this._touchPressSlot &&
