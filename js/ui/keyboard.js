@@ -189,7 +189,7 @@ class LanguageSelectionPopup extends PopupMenu.PopupMenu {
         const targetActor = global.stage.get_event_actor(event);
 
         if (targetActor === this.actor ||
-            this.actor.contains(targetActor))
+            (targetActor && this.actor.contains(targetActor)))
             return Clutter.EVENT_PROPAGATE;
 
         if (event.type() === Clutter.EventType.BUTTON_RELEASE || event.type() === Clutter.EventType.TOUCH_END)
@@ -340,7 +340,7 @@ const Key = GObject.registerClass({
         const targetActor = global.stage.get_event_actor(event);
 
         if (targetActor === this._boxPointer.bin ||
-            this._boxPointer.bin.contains(targetActor))
+            (targetActor && this._boxPointer.bin.contains(targetActor)))
             return Clutter.EVENT_PROPAGATE;
 
         if (press)
@@ -1166,8 +1166,9 @@ export class KeyboardManager extends Signals.EventEmitter {
 
         const actor = global.stage.get_event_actor(event);
 
-        if (Main.layoutManager.keyboardBox.contains(actor) ||
-            !!actor._extendedKeys || !!actor.extendedKey) {
+        if (actor &&
+            (Main.layoutManager.keyboardBox.contains(actor) ||
+             !!actor._extendedKeys || !!actor.extendedKey)) {
             actor.event(event, true);
             actor.event(event, false);
             return true;
