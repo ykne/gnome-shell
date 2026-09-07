@@ -159,7 +159,7 @@ export class GrabHelper {
             this._clickGesture.connect('recognize', () => {
                 const event = this._clickGesture.get_point_event(0);
                 const targetActor = global.stage.get_event_actor(event);
-                if (!this.currentGrab.actor.contains(targetActor)) {
+                if (!targetActor || !this.currentGrab.actor.contains(targetActor)) {
                     const i = this._actorInGrabStack(targetActor) + 1;
                     this.ungrab({actor: this._grabStack[i].actor, isUser: true});
                 }
