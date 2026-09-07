@@ -1076,6 +1076,25 @@ export class KeyboardManager extends Signals.EventEmitter {
             if (device.device_type === Clutter.InputDeviceType.KEYBOARD_DEVICE)
                 return;
 
+            // Under X11, a touch also moves the core pointer as a side
+            // effect (XInput2 touch-to-pointer emulation happens at the
+            // X server level, independently of any per-window touch
+            // accept/reject decision), which generates its own
+            // last-device-changed for the "Virtual core pointer" device
+            // immediately after the real touchscreen device's own
+            // notification for that same physical touch. Live-traced on
+            // real touchscreen hardware: this raced with
+            // _lastDeviceIsTouchscreen() and made KeyboardManager
+            // destroy the on-screen keyboard within about a second of
+            // creating and showing it - a visible open-then-instantly-
+            // close "flash". The seat's own touch-mode tracking doesn't
+            // have this problem (it stayed stable/correct across every
+            // reproduction), so trust it over a single POINTER_DEVICE
+            // blip that arrives while still in touch mode.
+            if (device.device_type === Clutter.InputDeviceType.POINTER_DEVICE &&
+                this._seat.get_touch_mode())
+                return;
+
             this._lastDevice = device;
             this._syncEnabled();
         });
