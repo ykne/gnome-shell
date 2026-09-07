@@ -189,7 +189,7 @@ class LanguageSelectionPopup extends PopupMenu.PopupMenu {
         const targetActor = global.stage.get_event_actor(event);
 
         if (targetActor === this.actor ||
-            this.actor.contains(targetActor))
+            (targetActor && this.actor.contains(targetActor)))
             return Clutter.EVENT_PROPAGATE;
 
         if (event.type() === Clutter.EventType.BUTTON_RELEASE || event.type() === Clutter.EventType.TOUCH_END)
@@ -340,7 +340,7 @@ const Key = GObject.registerClass({
         const targetActor = global.stage.get_event_actor(event);
 
         if (targetActor === this._boxPointer.bin ||
-            this._boxPointer.bin.contains(targetActor))
+            (targetActor && this._boxPointer.bin.contains(targetActor)))
             return Clutter.EVENT_PROPAGATE;
 
         if (press)
@@ -396,16 +396,23 @@ const Key = GObject.registerClass({
             return Clutter.EVENT_STOP;
         });
         button.connect('touch-event', (actor, event) => {
-            // Pointer events are handled in the key's `notify::hover`
-            // handler. They can't possibly reach here on Wayland, but
-            // for single-touch cases. Besides, the X11 passive touch grab
-            // set up by Mutter will make us see first the touch events
-            // and later the pointer events, so it will look like two
-            // unrelated series of events, we want to avoid double handling
-            // in these cases.
-            if (!Meta.is_wayland_compositor())
-                return Clutter.EVENT_PROPAGATE;
-
+            // This used to early-return under X11 on the assumption that
+            // mutter's own X11 passive touch grab would also deliver a
+            // pointer-emulated BUTTON_PRESS/BUTTON_RELEASE pair for the
+            // same gesture, handled instead via 'button-press-event'/
+            // 'button-release-event' above. Live-traced on real
+            // touchscreen hardware: that assumption doesn't hold for
+            // mutter's own compositing stage window under X11 - a window
+            // that itself selects and accepts raw XI2 touch (as mutter's
+            // does, see meta-seat-x11.c) never also receives a pointer-
+            // emulated companion for that same touch; pointer emulation
+            // is the X11 fallback specifically for clients that don't
+            // handle touch directly. Without this handler running, taps
+            // on the OSK's own keys under X11 never reached _press()/
+            // _release() at all - confirmed via clutter_actor_contains()
+            // gdb backtraces and OSKDBG event-chain tracing showing only
+            // raw TOUCH_BEGIN/TOUCH_END ever delivered, never
+            // BUTTON_PRESS/BUTTON_RELEASE, for this actor.
             const slot = event.get_event_sequence().get_slot();
 
             if (!this._touchPressSlot &&
@@ -1069,6 +1076,25 @@ export class KeyboardManager extends Signals.EventEmitter {
             if (device.device_type === Clutter.InputDeviceType.KEYBOARD_DEVICE)
                 return;
 
+            // Under X11, a touch also moves the core pointer as a side
+            // effect (XInput2 touch-to-pointer emulation happens at the
+            // X server level, independently of any per-window touch
+            // accept/reject decision), which generates its own
+            // last-device-changed for the "Virtual core pointer" device
+            // immediately after the real touchscreen device's own
+            // notification for that same physical touch. Live-traced on
+            // real touchscreen hardware: this raced with
+            // _lastDeviceIsTouchscreen() and made KeyboardManager
+            // destroy the on-screen keyboard within about a second of
+            // creating and showing it - a visible open-then-instantly-
+            // close "flash". The seat's own touch-mode tracking doesn't
+            // have this problem (it stayed stable/correct across every
+            // reproduction), so trust it over a single POINTER_DEVICE
+            // blip that arrives while still in touch mode.
+            if (device.device_type === Clutter.InputDeviceType.POINTER_DEVICE &&
+                this._seat.get_touch_mode())
+                return;
+
             this._lastDevice = device;
             this._syncEnabled();
         });
@@ -1166,8 +1192,9 @@ export class KeyboardManager extends Signals.EventEmitter {
 
         const actor = global.stage.get_event_actor(event);
 
-        if (Main.layoutManager.keyboardBox.contains(actor) ||
-            !!actor._extendedKeys || !!actor.extendedKey) {
+        if (actor &&
+            (Main.layoutManager.keyboardBox.contains(actor) ||
+             !!actor._extendedKeys || !!actor.extendedKey)) {
             actor.event(event, true);
             actor.event(event, false);
             return true;
