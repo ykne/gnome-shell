@@ -13,7 +13,7 @@
 # rather than relying on any project-level buildroot package list.
 
 PKG := gnome-shell
-VERSION := 50.4
+VERSION := 50.5
 
 NEEDS_LOCAL_REPO := 1
 MOCK_CHROOT ?= fedora-44-x86_64
