@@ -9,7 +9,7 @@
 
 Name:           gnome-shell
 Epoch:          1
-Version:        50.5
+Version:        51.0
 Release:        %autorelease
 Summary:        Window management and application launching for GNOME
 
@@ -20,17 +20,13 @@ Source0:        https://download.gnome.org/sources/gnome-shell/%{major_version}/
 # Replace Epiphany with Firefox in the default favourite apps list
 Patch: gnome-shell-favourite-apps-firefox.patch
 
-# Some users might have a broken PAM config, so we really need this
-# downstream patch to stop trying on configuration errors.
-Patch: 0001-gdm-Work-around-failing-fingerprint-auth.patch
-
 %define eds_version 3.45.1
 %define gnome_desktop_version 44.0-7
 %define glib2_version 2.86.0
-%define gjs_version 1.85.90
+%define gjs_version 1.87.1
 %define gtk4_version 4.0.0
 %define adwaita_version 1.5.0
-%define mutter_version 50~alpha
+%define mutter_version 51.0
 %define polkit_version 0.100
 %define gsettings_desktop_schemas_version 50~alpha
 %define ibus_version 1.5.2
@@ -184,7 +180,6 @@ BuildArch: noarch
 
 %build
 %meson \
-  -Dextensions_app=false \
 %if %{portal_helper}
   -Dportal_helper=true \
 %else
@@ -217,6 +212,7 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/org.gnome.Shell.Porta
 %{_bindir}/gnome-shell-extension-tool
 %{_bindir}/gnome-shell-test-tool
 %{_datadir}/glib-2.0/schemas/00_org.gnome.shell.gschema.override
+%{_datadir}/applications/org.gnome.Shell.CalendarServer.desktop
 %{_datadir}/applications/org.gnome.Shell.Extensions.desktop
 %{_datadir}/bash-completion/completions/gnome-extensions
 %{_datadir}/gnome-control-center/keybindings/50-gnome-shell-launchers.xml
