@@ -9,7 +9,7 @@
 
 Name:           gnome-shell
 Epoch:          1
-Version:        51.0
+Version:        51.1
 Release:        %autorelease
 Summary:        Window management and application launching for GNOME
 
